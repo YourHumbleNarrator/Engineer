@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Graph Visualizer</title>
+    <link rel="stylesheet" href="/static/css/main.css" />
+    <link rel="stylesheet" href="/static/css/library_panel.css" />
+
+    <!-- Cytoscape.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.29.2/cytoscape.min.js"></script>
+    <script src="https://unpkg.com/bpmn-js@17/dist/bpmn-viewer.production.min.js"></script>
+  </head>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pm4js/dist/pm4js.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bpmn-js/dist/bpmn-navigated-viewer.production.min.js"></script>
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/bpmn-js/dist/assets/bpmn-js.css"
+  />
+  <link rel="stylesheet" href="/static/css/graph-renderer.css" />
+  <script type="module">
+    import { initLibraryPanel } from "/static/js/library_panel.js";
+    initLibraryPanel("#library-panel");
+  </script>
+  <body>
+    <!-- ── Toolbar ───────────────────────────────────────────────── -->
+    <header class="toolbar">
+      <span class="toolbar__brand">GraphViz</span>
+
+      <label class="toolbar__upload">
+        <input
+          type="file"
+          id="fileInput"
+          accept=".xes,.yaml,.yml,.json,.graphml,.gml,.gexf"
+        />
+        Load graph
+      </label>
+
+      <div class="toolbar__controls">
+        <select id="layoutSelect" disabled>
+          <option value="">Layout…</option>
+        </select>
+        <button id="applyLayoutBtn" disabled>Apply</button>
+      </div>
+
+      <div id="graphMeta" class="toolbar__meta"></div>
+
+      <div id="library-panel"></div>
+    </header>
+
+    <!-- ── Main area ─────────────────────────────────────────────── -->
+    <main class="workspace">
+      <!-- Graph canvas -->
+      <div id="cy" class="canvas"></div>
+
+      <!-- Right panel: simplification controls -->
+      <aside class="panel" id="panel">
+        <h2 class="panel__title">Simplify</h2>
+
+        <label class="panel__label" for="methodSelect">Method</label>
+        <select id="methodSelect" class="panel__select" disabled>
+          <option value="edge_weight">Min edge weight</option>
+          <option value="k_core">k-core</option>
+        </select>
+
+        <label class="panel__label" for="paramInput">Parameter</label>
+        <input
+          id="paramInput"
+          class="panel__input"
+          type="number"
+          value="1"
+          min="0"
+          step="0.1"
+          disabled
+        />
+
+        <button id="simplifyBtn" class="panel__btn" disabled>Apply</button>
+
+        <div id="statusMsg" class="panel__status"></div>
+      </aside>
+    </main>
+
+    <script type="module" src="/static/js/main.js"></script>
+  </body>
+</html>
