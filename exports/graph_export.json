@@ -1,0 +1,392 @@
+{
+  "directed": true,
+  "multigraph": false,
+  "graph": {},
+  "nodes": [
+    {
+      "id": "Create Fine"
+    },
+    {
+      "id": "Send Fine"
+    },
+    {
+      "id": "Insert Fine Notification"
+    },
+    {
+      "id": "Add penalty"
+    },
+    {
+      "id": "Send for Credit Collection"
+    },
+    {
+      "id": "Payment"
+    },
+    {
+      "id": "Insert Date Appeal to Prefecture"
+    },
+    {
+      "id": "Send Appeal to Prefecture"
+    },
+    {
+      "id": "Receive Result Appeal from Prefecture"
+    },
+    {
+      "id": "Notify Result Appeal to Offender"
+    },
+    {
+      "id": "Appeal to Judge"
+    }
+  ],
+  "links": [
+    {
+      "frequency": 103392,
+      "source": "Create Fine",
+      "target": "Send Fine"
+    },
+    {
+      "frequency": 46952,
+      "source": "Create Fine",
+      "target": "Payment"
+    },
+    {
+      "frequency": 22,
+      "source": "Create Fine",
+      "target": "Insert Date Appeal to Prefecture"
+    },
+    {
+      "frequency": 4,
+      "source": "Create Fine",
+      "target": "Appeal to Judge"
+    },
+    {
+      "frequency": 79757,
+      "source": "Send Fine",
+      "target": "Insert Fine Notification"
+    },
+    {
+      "frequency": 3300,
+      "source": "Send Fine",
+      "target": "Payment"
+    },
+    {
+      "frequency": 161,
+      "source": "Send Fine",
+      "target": "Insert Date Appeal to Prefecture"
+    },
+    {
+      "frequency": 4,
+      "source": "Send Fine",
+      "target": "Send Appeal to Prefecture"
+    },
+    {
+      "frequency": 10,
+      "source": "Send Fine",
+      "target": "Appeal to Judge"
+    },
+    {
+      "frequency": 72334,
+      "source": "Insert Fine Notification",
+      "target": "Add penalty"
+    },
+    {
+      "frequency": 3327,
+      "source": "Insert Fine Notification",
+      "target": "Insert Date Appeal to Prefecture"
+    },
+    {
+      "frequency": 3891,
+      "source": "Insert Fine Notification",
+      "target": "Payment"
+    },
+    {
+      "frequency": 290,
+      "source": "Insert Fine Notification",
+      "target": "Appeal to Judge"
+    },
+    {
+      "frequency": 2,
+      "source": "Insert Fine Notification",
+      "target": "Receive Result Appeal from Prefecture"
+    },
+    {
+      "frequency": 16,
+      "source": "Insert Fine Notification",
+      "target": "Send Appeal to Prefecture"
+    },
+    {
+      "frequency": 57182,
+      "source": "Add penalty",
+      "target": "Send for Credit Collection"
+    },
+    {
+      "frequency": 18621,
+      "source": "Add penalty",
+      "target": "Payment"
+    },
+    {
+      "frequency": 2915,
+      "source": "Add penalty",
+      "target": "Send Appeal to Prefecture"
+    },
+    {
+      "frequency": 658,
+      "source": "Add penalty",
+      "target": "Insert Date Appeal to Prefecture"
+    },
+    {
+      "frequency": 351,
+      "source": "Add penalty",
+      "target": "Receive Result Appeal from Prefecture"
+    },
+    {
+      "frequency": 53,
+      "source": "Add penalty",
+      "target": "Notify Result Appeal to Offender"
+    },
+    {
+      "frequency": 80,
+      "source": "Add penalty",
+      "target": "Appeal to Judge"
+    },
+    {
+      "frequency": 16,
+      "source": "Send for Credit Collection",
+      "target": "Send Appeal to Prefecture"
+    },
+    {
+      "frequency": 4306,
+      "source": "Payment",
+      "target": "Payment"
+    },
+    {
+      "frequency": 3902,
+      "source": "Payment",
+      "target": "Add penalty"
+    },
+    {
+      "frequency": 1538,
+      "source": "Payment",
+      "target": "Send for Credit Collection"
+    },
+    {
+      "frequency": 569,
+      "source": "Payment",
+      "target": "Send Fine"
+    },
+    {
+      "frequency": 2,
+      "source": "Payment",
+      "target": "Receive Result Appeal from Prefecture"
+    },
+    {
+      "frequency": 74,
+      "source": "Payment",
+      "target": "Insert Fine Notification"
+    },
+    {
+      "frequency": 2,
+      "source": "Payment",
+      "target": "Insert Date Appeal to Prefecture"
+    },
+    {
+      "frequency": 4,
+      "source": "Payment",
+      "target": "Send Appeal to Prefecture"
+    },
+    {
+      "frequency": 1,
+      "source": "Payment",
+      "target": "Notify Result Appeal to Offender"
+    },
+    {
+      "frequency": 2,
+      "source": "Payment",
+      "target": "Appeal to Judge"
+    },
+    {
+      "frequency": 2933,
+      "source": "Insert Date Appeal to Prefecture",
+      "target": "Add penalty"
+    },
+    {
+      "frequency": 1159,
+      "source": "Insert Date Appeal to Prefecture",
+      "target": "Send Appeal to Prefecture"
+    },
+    {
+      "frequency": 14,
+      "source": "Insert Date Appeal to Prefecture",
+      "target": "Payment"
+    },
+    {
+      "frequency": 35,
+      "source": "Insert Date Appeal to Prefecture",
+      "target": "Receive Result Appeal from Prefecture"
+    },
+    {
+      "frequency": 25,
+      "source": "Insert Date Appeal to Prefecture",
+      "target": "Insert Fine Notification"
+    },
+    {
+      "frequency": 15,
+      "source": "Insert Date Appeal to Prefecture",
+      "target": "Send Fine"
+    },
+    {
+      "frequency": 7,
+      "source": "Insert Date Appeal to Prefecture",
+      "target": "Appeal to Judge"
+    },
+    {
+      "frequency": 606,
+      "source": "Send Appeal to Prefecture",
+      "target": "Receive Result Appeal from Prefecture"
+    },
+    {
+      "frequency": 347,
+      "source": "Send Appeal to Prefecture",
+      "target": "Add penalty"
+    },
+    {
+      "frequency": 3,
+      "source": "Send Appeal to Prefecture",
+      "target": "Send for Credit Collection"
+    },
+    {
+      "frequency": 20,
+      "source": "Send Appeal to Prefecture",
+      "target": "Payment"
+    },
+    {
+      "frequency": 7,
+      "source": "Send Appeal to Prefecture",
+      "target": "Send Fine"
+    },
+    {
+      "frequency": 4,
+      "source": "Send Appeal to Prefecture",
+      "target": "Notify Result Appeal to Offender"
+    },
+    {
+      "frequency": 2,
+      "source": "Send Appeal to Prefecture",
+      "target": "Insert Date Appeal to Prefecture"
+    },
+    {
+      "frequency": 4,
+      "source": "Send Appeal to Prefecture",
+      "target": "Insert Fine Notification"
+    },
+    {
+      "frequency": 4,
+      "source": "Send Appeal to Prefecture",
+      "target": "Appeal to Judge"
+    },
+    {
+      "frequency": 829,
+      "source": "Receive Result Appeal from Prefecture",
+      "target": "Notify Result Appeal to Offender"
+    },
+    {
+      "frequency": 51,
+      "source": "Receive Result Appeal from Prefecture",
+      "target": "Add penalty"
+    },
+    {
+      "frequency": 36,
+      "source": "Receive Result Appeal from Prefecture",
+      "target": "Payment"
+    },
+    {
+      "frequency": 1,
+      "source": "Receive Result Appeal from Prefecture",
+      "target": "Send for Credit Collection"
+    },
+    {
+      "frequency": 13,
+      "source": "Receive Result Appeal from Prefecture",
+      "target": "Appeal to Judge"
+    },
+    {
+      "frequency": 15,
+      "source": "Receive Result Appeal from Prefecture",
+      "target": "Send Appeal to Prefecture"
+    },
+    {
+      "frequency": 1,
+      "source": "Receive Result Appeal from Prefecture",
+      "target": "Insert Date Appeal to Prefecture"
+    },
+    {
+      "frequency": 391,
+      "source": "Notify Result Appeal to Offender",
+      "target": "Payment"
+    },
+    {
+      "frequency": 145,
+      "source": "Notify Result Appeal to Offender",
+      "target": "Appeal to Judge"
+    },
+    {
+      "frequency": 257,
+      "source": "Notify Result Appeal to Offender",
+      "target": "Send for Credit Collection"
+    },
+    {
+      "frequency": 12,
+      "source": "Notify Result Appeal to Offender",
+      "target": "Add penalty"
+    },
+    {
+      "frequency": 2,
+      "source": "Notify Result Appeal to Offender",
+      "target": "Receive Result Appeal from Prefecture"
+    },
+    {
+      "frequency": 3,
+      "source": "Notify Result Appeal to Offender",
+      "target": "Send Appeal to Prefecture"
+    },
+    {
+      "frequency": 281,
+      "source": "Appeal to Judge",
+      "target": "Add penalty"
+    },
+    {
+      "frequency": 15,
+      "source": "Appeal to Judge",
+      "target": "Insert Date Appeal to Prefecture"
+    },
+    {
+      "frequency": 70,
+      "source": "Appeal to Judge",
+      "target": "Payment"
+    },
+    {
+      "frequency": 32,
+      "source": "Appeal to Judge",
+      "target": "Send for Credit Collection"
+    },
+    {
+      "frequency": 9,
+      "source": "Appeal to Judge",
+      "target": "Notify Result Appeal to Offender"
+    },
+    {
+      "frequency": 1,
+      "source": "Appeal to Judge",
+      "target": "Receive Result Appeal from Prefecture"
+    },
+    {
+      "frequency": 4,
+      "source": "Appeal to Judge",
+      "target": "Send Fine"
+    },
+    {
+      "frequency": 9,
+      "source": "Appeal to Judge",
+      "target": "Send Appeal to Prefecture"
+    }
+  ]
+}

@@ -1,6 +1,23 @@
-flask>=3.0,<4
-pm4py>=2.7,<3
-networkx>=3.2,<4
+# Core
+flask>=3.0.0
+werkzeug>=3.0.0
+
+# Graph
+networkx>=3.2
+pm4py>=2.7.0
+
+# File format support
 pyyaml>=6.0
-graphviz>=0.20
-pydot>=2.0
+pandas>=2.0.0
+lxml>=4.9.0       # graphml/gexf
+
+# Layout (optional — enables dot/neato/twopi)
+# pydot>=2.0.0
+# pygraphviz>=1.11
+
+# Visualisation
+graphviz>=0.20.1
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
