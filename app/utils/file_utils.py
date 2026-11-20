@@ -1,5 +1,4 @@
 """Utilities for file upload handling."""
-import shutil
 import uuid
 from pathlib import Path
 
@@ -9,8 +8,12 @@ ALLOWED_EVENT_LOG_EXTS = {".xes", ".csv"}
 ALLOWED_GRAPH_EXTS = {
     ".xes", ".yaml", ".yml", ".txt", ".csv",
     ".net", ".gml", ".gexf", ".graphml",
+    ".json", ".pajek",
 }
 ALLOWED_MODEL_EXTS = {".pnml", ".bpmn"}
+
+# 4 MB chunks — keeps memory flat regardless of file size
+_CHUNK_BYTES = 4 * 1024 * 1024
 
 
 def save_upload(
@@ -19,7 +22,8 @@ def save_upload(
     allowed_exts: set,
 ) -> tuple:
     """
-    Save an UploadFile to upload_dir.
+    Stream an UploadFile to upload_dir in fixed-size chunks so that arbitrarily
+    large files (hundreds of MB) never fully reside in memory.
 
     Args:
         file: The uploaded file object.
@@ -49,9 +53,14 @@ def save_upload(
 
     try:
         with open(dest, "wb") as out:
-            shutil.copyfileobj(file.file, out)
+            while True:
+                chunk = file.file.read(_CHUNK_BYTES)
+                if not chunk:
+                    break
+                out.write(chunk)
     except OSError as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to save file: {exc}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to save file: {exc}")
     finally:
         file.file.close()
 

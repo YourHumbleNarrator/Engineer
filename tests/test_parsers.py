@@ -44,7 +44,8 @@ class TestCsvParser:
             pytest.skip("pm4py not installed")
 
         from app.services.parsers.csv_parser import parse_csv
-        log = parse_csv(csv, case_id_col="caseId", activity_col="activity", timestamp_col="ts")
+        log = parse_csv(csv, case_id_col="caseId",
+                        activity_col="activity", timestamp_col="ts")
         assert len(log) == 2  # 2 cases
 
     def test_parse_csv_missing_file(self, tmp_path):
@@ -70,8 +71,12 @@ class TestXesParser:
             importlib.reload(xes_parser)
             result = xes_parser.parse_xes(fake_xes)
 
-        # pm4py.read_xes should have been called with the string path
-        mock_read.assert_called_once_with(str(fake_xes))
+        # pm4py.read_xes should have been called once, with the string path
+        # as the first positional argument. We don't assert on extra kwargs
+        # (show_progress_bar, return_legacy_log_object) so the test stays
+        # valid if those defaults change.
+        mock_read.assert_called_once()
+        assert mock_read.call_args.args[0] == str(fake_xes)
         assert result is mock_log
 
 
@@ -114,3 +119,82 @@ class TestBpmnParser:
             result = bpmn_parser.parse_bpmn(fake_bpmn)
 
         assert result is mock_bpmn
+
+
+# ── XES sanitiser (no pm4py needed) ──────────────────────────────────────────
+
+class TestXesSanitiser:
+    """Unit-test _sanitise_xes_bytes in isolation — no pm4py dependency."""
+
+    @staticmethod
+    def _sanitise(raw: bytes) -> bytes:
+        from app.services.parsers.xes_parser import _sanitise_xes_bytes
+        return _sanitise_xes_bytes(raw)
+
+    def test_strips_utf8_bom(self):
+        raw = b"\xef\xbb\xbf<?xml version=\"1.0\"?><log/>"
+        result = self._sanitise(raw)
+        assert not result.startswith(b"\xef\xbb\xbf")
+        assert result.startswith(b"<?xml")
+
+    def test_strips_leading_whitespace(self):
+        raw = b"   \r\n<?xml version=\"1.0\"?><log/>"
+        result = self._sanitise(raw)
+        assert result.startswith(b"<?xml")
+
+    def test_strips_null_bytes_before_declaration(self):
+        raw = b"\x00\x00<?xml version=\"1.0\"?><log/>"
+        result = self._sanitise(raw)
+        assert result.startswith(b"<?xml")
+
+    def test_rewrites_non_utf8_encoding_declaration(self):
+        raw = b'<?xml version="1.0" encoding="windows-1252"?><log/>'
+        result = self._sanitise(raw)
+        assert b"windows-1252" not in result
+        assert b"UTF-8" in result
+
+    def test_rewrites_iso_encoding_declaration(self):
+        raw = b'<?xml version="1.0" encoding="ISO-8859-1"?><log/>'
+        result = self._sanitise(raw)
+        assert b"ISO-8859-1" not in result
+        assert b"UTF-8" in result
+
+    def test_leaves_utf8_declaration_intact(self):
+        raw = b'<?xml version="1.0" encoding="UTF-8"?><log/>'
+        result = self._sanitise(raw)
+        # UTF-8 stays; the declaration may be rewritten but must remain valid
+        assert b"UTF-8" in result
+        assert result.endswith(b"<log/>")
+
+    def test_no_declaration_passthrough(self):
+        """Files with no XML declaration should pass through unchanged."""
+        raw = b"<log><trace></trace></log>"
+        result = self._sanitise(raw)
+        assert result == raw
+
+    def test_bom_plus_bad_encoding(self):
+        raw = b"\xef\xbb\xbf<?xml version=\"1.0\" encoding=\"latin-1\"?><log/>"
+        result = self._sanitise(raw)
+        assert not result.startswith(b"\xef\xbb\xbf")
+        assert b"latin-1" not in result
+        assert b"UTF-8" in result
+
+    def test_sanitised_copy_streams_large_file(self, tmp_path):
+        """_make_sanitised_copy must handle files larger than its head window."""
+        from app.services.parsers.xes_parser import _make_sanitised_copy
+
+        # Build a file: bad header + 2 MB of body
+        body = b"<trace><event/></trace>\n" * 90_000   # ~2 MB
+        raw = b"\xef\xbb\xbf<?xml version=\"1.0\" encoding=\"windows-1252\"?>\n<log>\n" + body + b"</log>"
+        src = tmp_path / "big.xes"
+        src.write_bytes(raw)
+
+        out = _make_sanitised_copy(src)
+        result_bytes = out.read_bytes()
+
+        assert not result_bytes.startswith(b"\xef\xbb\xbf")
+        assert b"windows-1252" not in result_bytes
+        assert b"UTF-8" in result_bytes
+        # Body must be intact — no data loss
+        assert result_bytes.endswith(b"</log>")
+        assert result_bytes.count(b"<event/>") == 90_000

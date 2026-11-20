@@ -13,7 +13,8 @@ def convert(path: Path, fmt: str) -> Dict[str, Any]:
     Convert a graph file to a DFG-style JSON dict with nodes and edges.
     Returns a dict matching the DFGGraph schema.
 
-    Supported formats: gml, graphml, gexf, net (pajek), yaml, yml, csv, txt, xes.
+    Supported formats:
+      gml, graphml, gexf, net / pajek, yaml / yml, csv, txt, xes, json.
     """
     fmt = fmt.lower().lstrip(".")
     G = _load_graph(path, fmt)
@@ -28,6 +29,7 @@ def _load_graph(path: Path, fmt: str) -> nx.Graph:
     elif fmt == "gexf":
         return nx.read_gexf(str(path))
     elif fmt in ("net", "pajek"):
+        # Both .net and .pajek extensions map to Pajek format
         return nx.read_pajek(str(path))
     elif fmt in ("yaml", "yml"):
         return _load_yaml_graph(path)
@@ -37,6 +39,8 @@ def _load_graph(path: Path, fmt: str) -> nx.Graph:
         return _load_txt_graph(path)
     elif fmt == "xes":
         return _load_xes_as_dfg_graph(path)
+    elif fmt == "json":
+        return _load_json_graph(path)
     else:
         raise ValueError(f"Unsupported graph format: {fmt}")
 
@@ -96,6 +100,69 @@ def _load_txt_graph(path: Path) -> nx.DiGraph:
     return G
 
 
+def _load_json_graph(path: Path) -> nx.DiGraph:
+    """
+    Load a graph from a JSON file.  Accepts three layouts:
+
+    1. node-link format (networkx native):
+       {"directed": true, "nodes": [...], "links": [...]}
+
+    2. adjacency list:
+       {"nodes": ["A","B"], "edges": [{"source":"A","target":"B","weight":3}]}
+
+    3. plain edge list:
+       [{"source":"A","target":"B"}, ...]
+       or [["A","B"], ...]
+    """
+    import json
+
+    with open(path) as f:
+        data = json.load(f)
+
+    # 1. networkx node-link format
+    if isinstance(data, dict) and "links" in data:
+        return nx.node_link_graph(data)
+
+    # 2. adjacency / edges dict
+    if isinstance(data, dict) and ("edges" in data or "arcs" in data):
+        edges = data.get("edges") or data.get("arcs", [])
+        nodes = data.get("nodes", [])
+        G = nx.DiGraph()
+        for n in nodes:
+            nid = n if isinstance(n, str) else n.get("id", str(n))
+            G.add_node(nid, label=n.get("label", nid)
+                       if isinstance(n, dict) else nid)
+        for e in edges:
+            if isinstance(e, (list, tuple)):
+                src, tgt = str(e[0]), str(e[1])
+                w = int(e[2]) if len(e) > 2 else 1
+            else:
+                src = str(e.get("source", e.get("src", e.get("from", ""))))
+                tgt = str(e.get("target", e.get("dst", e.get("to", ""))))
+                w = int(e.get("weight", e.get("count", 1)))
+            G.add_edge(src, tgt, weight=w)
+        return G
+
+    # 3. plain list of edges
+    if isinstance(data, list):
+        G = nx.DiGraph()
+        for e in data:
+            if isinstance(e, (list, tuple)):
+                G.add_edge(str(e[0]), str(e[1]), weight=int(
+                    e[2]) if len(e) > 2 else 1)
+            elif isinstance(e, dict):
+                src = str(e.get("source", e.get("src", e.get("from", ""))))
+                tgt = str(e.get("target", e.get("dst", e.get("to", ""))))
+                G.add_edge(src, tgt, weight=int(
+                    e.get("weight", e.get("count", 1))))
+        return G
+
+    raise ValueError(
+        "JSON graph must be a node-link dict (with 'links'), "
+        "an adjacency dict (with 'edges'), or a plain list of edges."
+    )
+
+
 def _load_xes_as_dfg_graph(path: Path) -> nx.DiGraph:
     import pm4py
 
@@ -134,8 +201,10 @@ def _nx_to_dfg(G: nx.Graph, name: str) -> Dict[str, Any]:
         )
 
     if G.is_directed():
-        start_acts = {str(n): G.degree(n) for n in G.nodes() if G.in_degree(n) == 0}
-        end_acts = {str(n): G.degree(n) for n in G.nodes() if G.out_degree(n) == 0}
+        start_acts = {str(n): G.degree(n)
+                      for n in G.nodes() if G.in_degree(n) == 0}
+        end_acts = {str(n): G.degree(n)
+                    for n in G.nodes() if G.out_degree(n) == 0}
     else:
         start_acts = {}
         end_acts = {}

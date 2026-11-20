@@ -191,29 +191,127 @@ class TestGmlConversion:
 class TestGraphMLConversion:
     def test_graphml_basic(self, tmp_path):
         """Standard GraphML file should parse and produce a DFG-shaped result."""
-        graphml = tmp_path / "graph.graphml"
-        graphml.write_text(
-            '<?xml version="1.0" encoding="UTF-8"?>\n'
-            '<graphml xmlns="http://graphml.graphdrawing.org/graphml">\n'
-            '  <graph id="G" edgedefault="directed">\n'
-            '    <node id="n0"/>\n'
-            '    <node id="n1"/>\n'
-            '    <node id="n2"/>\n'
-            '    <edge id="e0" source="n0" target="n1"/>\n'
-            '    <edge id="e1" source="n1" target="n2"/>\n'
-            '  </graph>\n'
-            '</graphml>\n'
-        )
         try:
-            import networkx  # noqa: F401
+            import networkx as nx
         except ImportError:
             pytest.skip("networkx not installed")
+
+        # Use networkx's own writer so the namespace and schema-location
+        # attributes are exactly what its reader expects (xmlns/xmlns is
+        # http://graphml.graphdrawing.org/xmlns, NOT /graphml).
+        graphml = tmp_path / "graph.graphml"
+        G = nx.DiGraph()
+        G.add_node("n0", label="CreateOrder")
+        G.add_node("n1", label="ApproveOrder")
+        G.add_node("n2", label="CloseOrder")
+        G.add_edge("n0", "n1")
+        G.add_edge("n1", "n2")
+        nx.write_graphml(G, str(graphml))
 
         from app.services.graph_conversion.converter import convert
         result = convert(graphml, "graphml")
         _assert_dfg_shape(result)
         assert len(result["activities"]) == 3
         assert len(result["edges"]) == 2
+
+
+# ── JSON graph ────────────────────────────────────────────────────────────────
+
+class TestJsonConversion:
+    def test_node_link_format(self, tmp_path):
+        """networkx node-link JSON should round-trip cleanly."""
+        import networkx as nx
+        import json
+        G = nx.DiGraph()
+        G.add_edge("A", "B", weight=5)
+        G.add_edge("B", "C", weight=3)
+        p = tmp_path / "g.json"
+        p.write_text(json.dumps(nx.node_link_data(G)))
+        from app.services.graph_conversion.converter import convert
+        result = convert(p, "json")
+        _assert_dfg_shape(result)
+        assert len(result["edges"]) == 2
+
+    def test_adjacency_dict_format(self, tmp_path):
+        """Dict with 'edges' key should parse."""
+        import json
+        data = {
+            "nodes": ["X", "Y", "Z"],
+            "edges": [
+                {"source": "X", "target": "Y", "weight": 10},
+                {"source": "Y", "target": "Z", "weight": 7},
+            ],
+        }
+        p = tmp_path / "g.json"
+        p.write_text(json.dumps(data))
+        from app.services.graph_conversion.converter import convert
+        result = convert(p, "json")
+        _assert_dfg_shape(result)
+        assert len(result["edges"]) == 2
+        counts = {e["count"] for e in result["edges"]}
+        assert 10 in counts and 7 in counts
+
+    def test_plain_edge_list_dicts(self, tmp_path):
+        """Plain list of {source, target} dicts should parse."""
+        import json
+        data = [{"source": "A", "target": "B"}, {"source": "B", "target": "C"}]
+        p = tmp_path / "g.json"
+        p.write_text(json.dumps(data))
+        from app.services.graph_conversion.converter import convert
+        result = convert(p, "json")
+        assert len(result["edges"]) == 2
+
+    def test_plain_edge_list_arrays(self, tmp_path):
+        """Plain list of [src, tgt, weight] arrays should parse."""
+        import json
+        data = [["A", "B", 4], ["B", "C", 2]]
+        p = tmp_path / "g.json"
+        p.write_text(json.dumps(data))
+        from app.services.graph_conversion.converter import convert
+        result = convert(p, "json")
+        assert len(result["edges"]) == 2
+        assert result["edges"][0]["count"] == 4
+
+    def test_invalid_json_structure_raises(self, tmp_path):
+        import json
+        p = tmp_path / "g.json"
+        p.write_text(json.dumps({"foo": "bar"}))  # no edges, no links
+        from app.services.graph_conversion.converter import convert
+        with pytest.raises((ValueError, Exception)):
+            convert(p, "json")
+
+
+# ── Pajek (.pajek alias) ──────────────────────────────────────────────────────
+
+class TestPajekConversion:
+    def test_pajek_via_net_extension(self, tmp_path):
+        """Standard Pajek .net format should parse via networkx."""
+        import networkx as nx
+        G = nx.DiGraph()
+        G.add_edge("1", "2", weight=3)
+        G.add_edge("2", "3", weight=1)
+        p = tmp_path / "graph.net"
+        nx.write_pajek(G, str(p))
+        from app.services.graph_conversion.converter import convert
+        result = convert(p, "net")
+        _assert_dfg_shape(result)
+        assert len(result["edges"]) == 2
+
+    def test_pajek_extension_alias(self, tmp_path):
+        """.pajek extension should be treated same as .net."""
+        import networkx as nx
+        G = nx.DiGraph()
+        G.add_edge("A", "B")
+        # write as .net, then copy to .pajek — extension is what the router passes
+        net_p = tmp_path / "g.net"
+        nx.write_pajek(G, str(net_p))
+        pajek_p = tmp_path / "g.pajek"
+        pajek_p.write_bytes(net_p.read_bytes())
+        from app.services.graph_conversion.converter import convert
+        # converter only receives the fmt string, not the path extension
+        # router strips dot and maps .pajek→net
+        result = convert(pajek_p, "net")
+        _assert_dfg_shape(result)
 
 
 # ── Unsupported format ────────────────────────────────────────────────────────

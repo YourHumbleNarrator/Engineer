@@ -1,0 +1,6 @@
+{
+  "name": "ProcessCanvas — Process Mining Studio",
+  "description": "Custom interactive visualization studio for DFG, Petri Net, Process Tree, and BPMN graphs with structure-adaptive layouts, simplification, library execution, and SVG export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

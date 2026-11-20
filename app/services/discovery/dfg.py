@@ -1,24 +1,35 @@
-"""Discover Directly-Follows Graphs (DFG) using pm4py."""
-import uuid
-from typing import Optional
+"""Discover Directly-Follows Graphs (DFG) using pm4py.
 
+Large-file note
+---------------
+pm4py.discover_dfg accepts both EventLog objects and pandas DataFrames.
+Passing a DataFrame is significantly faster for large logs because pm4py
+can operate on vectorised pandas operations rather than iterating Python
+dicts.  The router passes whichever representation the parser produced.
+"""
+import uuid
+from typing import Optional, Union
+
+import pandas as pd
 import pm4py
 
 from app.models.graph import Activity, DFGEdge, DFGGraph
 
+_Log = Union["pm4py.objects.log.obj.EventLog", pd.DataFrame]
+
 
 def discover_dfg(
-    log,
+    log: _Log,
     graph_id: Optional[str] = None,
     graph_name: str = "Discovered DFG",
 ) -> DFGGraph:
     """
-    Discover a DFG from a pm4py EventLog.
+    Discover a DFG from a pm4py EventLog or a formatted pandas DataFrame.
     Also discovers the performance DFG to annotate edges with mean duration.
     """
     gid = graph_id or f"dfg-{uuid.uuid4().hex[:8]}"
 
-    # Frequency DFG
+    # Frequency DFG — works with both EventLog and DataFrame
     dfg, start_acts, end_acts = pm4py.discover_dfg(log)
 
     # Performance DFG for mean sojourn durations
