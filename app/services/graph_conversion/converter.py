@@ -8,6 +8,9 @@ import pandas as pd
 import yaml
 
 
+_NATIVE_KINDS = {"dfg", "petri_net", "process_tree", "bpmn"}
+
+
 def convert(path: Path, fmt: str) -> Dict[str, Any]:
     """
     Convert a graph file to a DFG-style JSON dict with nodes and edges.
@@ -15,8 +18,25 @@ def convert(path: Path, fmt: str) -> Dict[str, Any]:
 
     Supported formats:
       gml, graphml, gexf, net / pajek, yaml / yml, csv, txt, xes, json.
+
+    Lossless pass-through
+    ---------------------
+    When the uploaded JSON already carries a native graph envelope
+    (``"kind": "dfg" | "petri_net" | "process_tree" | "bpmn"``) the file
+    is returned as-is without routing through the NetworkX pipeline.
+    This preserves every field — ``count``, ``meanDurationSec``,
+    ``startActivities``, ``endActivities``, ``places``, ``arcs``, etc. —
+    that would otherwise be silently dropped or overwritten by
+    ``_nx_to_dfg``.
     """
     fmt = fmt.lower().lstrip(".")
+
+    if fmt == "json":
+        import json
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, dict) and data.get("kind") in _NATIVE_KINDS:
+            return data  # ← lossless pass-through, nothing rebuilt
+
     G = _load_graph(path, fmt)
     return _nx_to_dfg(G, path.stem)
 
@@ -119,9 +139,20 @@ def _load_json_graph(path: Path) -> nx.DiGraph:
     with open(path) as f:
         data = json.load(f)
 
-    # 1. networkx node-link format
+    # 1. networkx node-link format  {"nodes": [...], "links": [...]}
+    # Parsed manually rather than via nx.node_link_graph because the
+    # required keys ("nodes", "edges" vs "links") differ across nx versions.
     if isinstance(data, dict) and "links" in data:
-        return nx.node_link_graph(data)
+        G = nx.DiGraph() if data.get("directed", True) else nx.Graph()
+        for n in data.get("nodes", []):
+            nid = n.get("id", str(n)) if isinstance(n, dict) else str(n)
+            G.add_node(nid)
+        for e in data["links"]:
+            src = str(e.get("source", e.get("src", "")))
+            tgt = str(e.get("target", e.get("dst", "")))
+            w = int(e.get("weight", e.get("count", 1)))
+            G.add_edge(src, tgt, weight=w)
+        return G
 
     # 2. adjacency / edges dict
     if isinstance(data, dict) and ("edges" in data or "arcs" in data):

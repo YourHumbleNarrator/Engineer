@@ -19,6 +19,8 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 _SCRIPT_PATH = Path(__file__).parent / "scripts" / "discover.R"
+_RENDER_SCRIPT_PATH = Path(__file__).parent / \
+    "scripts" / "render_process_map.R"
 
 
 def discover_with_r(
@@ -71,7 +73,8 @@ def discover_with_r(
     logger.info("Running R discovery: %s", " ".join(r_cmd))
 
     try:
-        result = subprocess.run(r_cmd, capture_output=True, text=True, timeout=120)
+        result = subprocess.run(
+            r_cmd, capture_output=True, text=True, timeout=120)
     except FileNotFoundError:
         raise RuntimeError(
             "Rscript not found in PATH. "
@@ -94,6 +97,83 @@ def discover_with_r(
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError) as exc:
         raise RuntimeError(f"Failed to parse R output JSON: {exc}")
+    finally:
+        try:
+            Path(out_path).unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+def render_process_map_png(
+    csv_path: Path,
+    case_id: str = "case:concept:name",
+    activity: str = "concept:name",
+    timestamp: str = "time:timestamp",
+    map_type: str = "frequency",
+) -> str:
+    """
+    Render a processmapR process_map to a PNG and return it as a base64 string.
+
+    Args:
+        csv_path: Path to the CSV event log.
+        case_id: Column name for case identifier.
+        activity: Column name for activity names.
+        timestamp: Column name for timestamps.
+        map_type: "frequency" or "performance".
+
+    Returns:
+        Base64-encoded PNG string (no data-URI prefix).
+
+    Raises:
+        RuntimeError: If R is unavailable, required packages are missing,
+                      or the R subprocess exits with a non-zero return code.
+    """
+    if not _RENDER_SCRIPT_PATH.exists():
+        raise RuntimeError(
+            f"R render script not found at: {_RENDER_SCRIPT_PATH}")
+
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+        out_path = tmp.name
+
+    r_cmd = [
+        "Rscript",
+        str(_RENDER_SCRIPT_PATH),
+        "--csv",       str(csv_path),
+        "--out",       out_path,
+        "--case_id",   case_id,
+        "--activity",  activity,
+        "--timestamp", timestamp,
+        "--type",      map_type,
+    ]
+
+    logger.info("Running R process_map render: %s", " ".join(r_cmd))
+
+    try:
+        result = subprocess.run(
+            r_cmd, capture_output=True, text=True, timeout=120)
+    except FileNotFoundError:
+        raise RuntimeError(
+            "Rscript not found in PATH. "
+            "Please install R (https://www.r-project.org/) and ensure it is on your PATH."
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("R render process timed out after 120 seconds.")
+
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"R render process exited with code {result.returncode}.\n"
+            f"stderr:\n{result.stderr}\n"
+            f"stdout:\n{result.stdout}"
+        )
+
+    logger.debug("R render stdout: %s", result.stdout)
+
+    try:
+        import base64
+        with open(out_path, "rb") as f:
+            return base64.b64encode(f.read()).decode("utf-8")
+    except (FileNotFoundError, OSError) as exc:
+        raise RuntimeError(f"Failed to read rendered PNG: {exc}")
     finally:
         try:
             Path(out_path).unlink(missing_ok=True)

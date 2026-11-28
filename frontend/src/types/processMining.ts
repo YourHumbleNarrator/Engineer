@@ -1,10 +1,34 @@
-// Exact mirrors of app/models/graph.py & app/models/requests.py in YourHumbleNarrator/Engineer
+// Mirrors app/models/graph.py & app/models/requests.py in YourHumbleNarrator/Engineer
 
 export type GraphKind = 'dfg' | 'petri_net' | 'process_tree' | 'bpmn';
 
 export type InteractionMode = 'static' | 'inspect' | 'edit';
 
 export type LayoutOrientation = 'auto' | 'LR' | 'TB';
+
+export type LayoutAlgorithm =
+  | 'auto'
+  | 'sugiyama'
+  | 'backbone_spine'
+  | 'stress_majorization'
+  | 'tree_hierarchy';
+
+export type EdgeRoutingStyle = 'auto' | 'curved' | 'orthogonal' | 'bundled';
+
+export type CrossingMinLevel = 'auto' | 'standard' | 'intensive';
+
+export interface LayoutConfig {
+  algorithm: LayoutAlgorithm;
+  orientation: LayoutOrientation;
+  edgeRouting: EdgeRoutingStyle;
+  crossingMin: CrossingMinLevel;
+  spacingScale: number | null; // null = auto-selected based on graph density
+  highlightBackbone: boolean | null; // null = auto-selected based on edge volume & skew
+  forcePlanar?: boolean; // when graph is planar, forces a 0-crossing planar visualization
+  chunkLongGraph?: boolean; // divides very long graphs into compact rows/columns to fit in one view
+}
+
+export type PlanarityStatus = 'planar_verified' | 'near_planar' | 'non_planar_euler';
 
 export interface Activity {
   id: string;
@@ -161,15 +185,42 @@ export interface PMFunctionExecutionResult {
 }
 
 export interface LayoutRuleSummary {
+  resolvedAlgorithm: Exclude<LayoutAlgorithm, 'auto'>;
   resolvedOrientation: 'LR' | 'TB';
-  densityClass: 'sparse' | 'balanced' | 'dense';
+  resolvedRouting: Exclude<EdgeRoutingStyle, 'auto'>;
+  resolvedCrossingMin: Exclude<CrossingMinLevel, 'auto'>;
+  resolvedSpacingScale: number;
+  resolvedHighlightBackbone: boolean;
+  defaultSpacingScale: number;
+  defaultHighlightBackbone: boolean;
+  forcePlanarActive?: boolean;
+  chunkLongGraphActive?: boolean;
+  orientationApplicable: boolean;
+  crossingApplicable: boolean;
+  availableAlgorithms: Array<Exclude<LayoutAlgorithm, 'auto'>>;
+  availableRoutings: Array<Exclude<EdgeRoutingStyle, 'auto'>>;
+  autoReasons: {
+    algorithm: string;
+    orientation: string;
+    routing: string;
+    crossingMin: string;
+    backbone: string;
+    spacing: string;
+  };
+  densityClass: 'sparse' | 'small_dense' | 'balanced' | 'large_dense';
+  planarityStatus: PlanarityStatus;
+  planarityReason: string;
+  undirectedEdgeCount: number;
+  maxPlanarEdges: number;
+  isBipartite: boolean;
+  avgDegree: number;
   rankCount: number;
   maxRankBreadth: number;
   backEdgeCount: number;
   selfLoopCount: number;
   bidirectionalPairs: number;
   crossingEstimate: number;
-  appliedRules: string[];
+  appliedRules: Array<{ rule: string; reason: string; worksFor: string }>;
 }
 
 export interface GraphStats {
@@ -203,8 +254,9 @@ export interface SampleDataset {
   id: string;
   name: string;
   description: string;
+  profileTag: string;
   tracesCount: number;
   eventsCount: number;
   traces: EventTrace[];
-  graphs: Record<GraphKind, GraphObject>;
+  graphs: Partial<Record<GraphKind, GraphObject>>;
 }

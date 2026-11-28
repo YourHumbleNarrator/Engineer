@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Maximize2,
+  Focus,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
@@ -74,6 +74,16 @@ function quadPoint(p0: Point, cp: Point, p1: Point, t: number): Point {
   };
 }
 
+function cubicPoint(p0: Point, cp1: Point, cp2: Point, p1: Point, t: number): Point {
+  const mt = 1 - t;
+  const mt2 = mt * mt;
+  const t2 = t * t;
+  return {
+    x: mt2 * mt * p0.x + 3 * mt2 * t * cp1.x + 3 * mt * t2 * cp2.x + t2 * t * p1.x,
+    y: mt2 * mt * p0.y + 3 * mt2 * t * cp1.y + 3 * mt * t2 * cp2.y + t2 * t * p1.y,
+  };
+}
+
 export const GraphCanvas: React.FC<GraphCanvasProps> = ({
   layout,
   mode,
@@ -90,24 +100,56 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState<Point>({ x: 24, y: 24 });
   const [isPanning, setIsPanning] = useState(false);
+  const [smoothCamera, setSmoothCamera] = useState(false);
+  const smoothTimerRef = useRef<number | null>(null);
   const panStartRef = useRef<{ clientX: number; clientY: number; panX: number; panY: number } | null>(null);
 
   const [nodeOverrides, setNodeOverrides] = useState<Record<string, Point>>({});
   const [edgeOverrides, setEdgeOverrides] = useState<Record<string, Point>>({});
+  const [multiSelectedIds, setMultiSelectedIds] = useState<string[]>([]);
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
   const [draggingEdgeId, setDraggingEdgeId] = useState<string | null>(null);
-  const dragOffsetRef = useRef<Point>({ x: 0, y: 0 });
+  const groupDragStartRef = useRef<{
+    pointerStart: Point;
+    initialNodes: Record<string, Point>;
+  } | null>(null);
+  const pendingCtrlToggleOutRef = useRef<string | null>(null);
   const didDragRef = useRef(false);
 
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null);
 
+  const triggerSmoothCamera = useCallback(() => {
+    if (smoothTimerRef.current) window.clearTimeout(smoothTimerRef.current);
+    setSmoothCamera(true);
+    smoothTimerRef.current = window.setTimeout(() => {
+      setSmoothCamera(false);
+      smoothTimerRef.current = null;
+    }, 240);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (smoothTimerRef.current) window.clearTimeout(smoothTimerRef.current);
+    };
+  }, []);
+
   useEffect(() => {
     setNodeOverrides({});
     setEdgeOverrides({});
+    setMultiSelectedIds([]);
     setHoveredNodeId(null);
     setHoveredEdgeId(null);
-  }, [graphId, layout.summary.resolvedOrientation, resetPositionsSignal]);
+  }, [
+    graphId,
+    layout.summary.resolvedAlgorithm,
+    layout.summary.resolvedOrientation,
+    layout.summary.resolvedRouting,
+    layout.summary.resolvedCrossingMin,
+    layout.summary.resolvedSpacingScale,
+    layout.summary.chunkLongGraphActive,
+    resetPositionsSignal,
+  ]);
 
   useEffect(() => {
     onCustomOverridesChange(
@@ -119,15 +161,72 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
     const el = containerRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    const pad = 48;
+    const pad = 24;
     const scaleX = (rect.width - pad) / Math.max(layout.width, 1);
     const scaleY = (rect.height - pad) / Math.max(layout.height, 1);
-    const nextZoom = Math.max(0.25, Math.min(1.15, Math.min(scaleX, scaleY)));
-    const offsetX = Math.max(16, (rect.width - layout.width * nextZoom) / 2);
-    const offsetY = Math.max(16, (rect.height - layout.height * nextZoom) / 2);
+    const rawFit = Math.min(scaleX, scaleY);
+    // Prioritize regular 1.0x size whenever the graph fits on screen cleanly
+    const nextZoom =
+      rawFit >= 0.92 ? 1.0 : Math.max(0.12, Math.min(1.0, rawFit));
+    const offsetX = Math.max(12, (rect.width - layout.width * nextZoom) / 2);
+    const offsetY = Math.max(12, (rect.height - layout.height * nextZoom) / 2);
+    triggerSmoothCamera();
     setZoom(nextZoom);
     setPan({ x: offsetX, y: offsetY });
-  }, [layout.width, layout.height]);
+  }, [layout.width, layout.height, triggerSmoothCamera]);
+
+  const focusView = useCallback(() => {
+    const el = containerRef.current;
+    if (!el || layout.nodes.length === 0) return;
+    const rect = el.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+
+    const activeNodes = layout.nodes.map((n) => {
+      const ov = nodeOverrides[n.id];
+      return ov ? { ...n, x: ov.x, y: ov.y } : n;
+    });
+
+    const nodeLefts = activeNodes.map((n) => n.x - n.width / 2 - 12);
+    const nodeRights = activeNodes.map((n) => n.x + n.width / 2 + 12);
+    const nodeTops = activeNodes.map((n) => n.y - n.height / 2 - 18);
+    const nodeBottoms = activeNodes.map(
+      (n) =>
+        n.y +
+        n.height / 2 +
+        (n.shape === 'startTerminal' || n.shape === 'endTerminal' ? 24 : 14)
+    );
+
+    const laneLefts = layout.lanes.map((l) => l.x);
+    const laneRights = layout.lanes.map((l) => l.x + l.width);
+    const laneTops = layout.lanes.map((l) => l.y);
+    const laneBottoms = layout.lanes.map((l) => l.y + l.height);
+
+    const minX = Math.min(...nodeLefts, ...laneLefts);
+    const maxX = Math.max(...nodeRights, ...laneRights);
+    const minY = Math.min(...nodeTops, ...laneTops);
+    const maxY = Math.max(...nodeBottoms, ...laneBottoms);
+    const contentW = Math.max(maxX - minX, 80);
+    const contentH = Math.max(maxY - minY, 60);
+
+    const padX = 56;
+    const padY = 80;
+    const rawFit = Math.min(
+      Math.max(rect.width - padX, 80) / contentW,
+      Math.max(rect.height - padY, 80) / contentH
+    );
+
+    // Always fit the entire graph in view (down to 12% if large), zooming in up to 185% for compact graphs
+    const nextZoom = Math.max(0.12, Math.min(1.85, rawFit));
+
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const panX = rect.width / 2 - cx * nextZoom;
+    const panY = rect.height / 2 - cy * nextZoom;
+
+    triggerSmoothCamera();
+    setZoom(nextZoom);
+    setPan({ x: panX, y: panY });
+  }, [layout.nodes, layout.lanes, nodeOverrides, triggerSmoothCamera]);
 
   useEffect(() => {
     fitToView();
@@ -163,13 +262,23 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
     if (mode !== 'inspect') return null;
     const focusNodeId = hoveredNodeId || (selected?.kind === 'node' ? selected.id : null);
     const focusEdgeId = hoveredEdgeId || (selected?.kind === 'edge' ? selected.id : null);
+    const hasMulti = multiSelectedIds.length > 0;
 
-    if (!focusNodeId && !focusEdgeId) return null;
+    if (!focusNodeId && !focusEdgeId && !hasMulti) return null;
 
     const highlightedNodes = new Set<string>();
     const highlightedEdges = new Set<string>();
 
-    if (focusNodeId) {
+    if (hasMulti) {
+      multiSelectedIds.forEach((id) => highlightedNodes.add(id));
+      layout.edges.forEach((e) => {
+        if (multiSelectedIds.includes(e.source) || multiSelectedIds.includes(e.target)) {
+          highlightedEdges.add(e.id);
+          highlightedNodes.add(e.source);
+          highlightedNodes.add(e.target);
+        }
+      });
+    } else if (focusNodeId) {
       highlightedNodes.add(focusNodeId);
       layout.edges.forEach((e) => {
         if (e.source === focusNodeId || e.target === focusNodeId) {
@@ -188,7 +297,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
     }
 
     return { highlightedNodes, highlightedEdges };
-  }, [mode, hoveredNodeId, hoveredEdgeId, selected, layout.edges]);
+  }, [mode, hoveredNodeId, hoveredEdgeId, selected, multiSelectedIds, layout.edges]);
 
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
@@ -204,16 +313,23 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
   };
 
   const handleCanvasMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (draggingNodeId && mode === 'edit') {
-      didDragRef.current = true;
+    if (draggingNodeId && mode === 'edit' && groupDragStartRef.current) {
       const w = clientToWorld(e.clientX, e.clientY);
-      setNodeOverrides((prev) => ({
-        ...prev,
-        [draggingNodeId]: {
-          x: w.x - dragOffsetRef.current.x,
-          y: w.y - dragOffsetRef.current.y,
-        },
-      }));
+      const dx = w.x - groupDragStartRef.current.pointerStart.x;
+      const dy = w.y - groupDragStartRef.current.pointerStart.y;
+      if (Math.hypot(dx, dy) > 2) {
+        didDragRef.current = true;
+      } else if (!didDragRef.current) {
+        return;
+      }
+      const initial = groupDragStartRef.current.initialNodes;
+      setNodeOverrides((prev) => {
+        const next = { ...prev };
+        Object.entries(initial).forEach(([id, pt]) => {
+          next[id] = { x: pt.x + dx, y: pt.y + dy };
+        });
+        return next;
+      });
       return;
     }
 
@@ -238,13 +354,17 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
     }
   };
 
-  const handleCanvasMouseUp = () => {
+  const handleCanvasMouseUp = (e: React.MouseEvent<HTMLDivElement>) => {
     if (isPanning && !didDragRef.current && mode !== 'static') {
+      if (!e.ctrlKey && !e.metaKey) {
+        setMultiSelectedIds([]);
+      }
       onSelect(null);
     }
     setIsPanning(false);
     setDraggingNodeId(null);
     setDraggingEdgeId(null);
+    groupDragStartRef.current = null;
     panStartRef.current = null;
   };
 
@@ -256,7 +376,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
     const factor = e.deltaY < 0 ? 1.1 : 0.91;
-    const nextZoom = Math.max(0.2, Math.min(2.6, zoom * factor));
+    const nextZoom = Math.max(0.12, Math.min(3.0, zoom * factor));
     const ratio = nextZoom / zoom;
     setPan({
       x: mouseX - (mouseX - pan.x) * ratio,
@@ -387,7 +507,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       <div className="absolute bottom-3 right-3 z-20 flex items-center gap-1 p-1 rounded-lg bg-white/95 dark:bg-slate-900/95 border border-slate-200 dark:border-slate-800 shadow-sm">
         <button
           type="button"
-          onClick={() => setZoom((z) => Math.max(0.2, z * 0.85))}
+          onClick={() => setZoom((z) => Math.max(0.12, z * 0.85))}
           aria-label="Zoom out"
           className="p-1.5 rounded-md text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
         >
@@ -398,7 +518,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         </span>
         <button
           type="button"
-          onClick={() => setZoom((z) => Math.min(2.6, z * 1.15))}
+          onClick={() => setZoom((z) => Math.min(3.0, z * 1.15))}
           aria-label="Zoom in"
           className="p-1.5 rounded-md text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
         >
@@ -406,12 +526,13 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         </button>
         <button
           type="button"
-          onClick={fitToView}
-          title="Fit graph to viewport"
-          aria-label="Fit graph to viewport"
-          className="p-1.5 rounded-md text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors border-l border-slate-200 dark:border-slate-800 ml-0.5 pl-2"
+          onClick={focusView}
+          title="Focus: fit the whole graph in view"
+          aria-label="Focus graph"
+          className="inline-flex items-center gap-1 pr-2 py-1 rounded-md text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors border-l border-slate-200 dark:border-slate-800 ml-0.5 pl-2"
         >
-          <Maximize2 className="w-4 h-4" />
+          <Focus className="w-3.5 h-3.5" />
+          <span>Focus</span>
         </button>
       </div>
 
@@ -471,7 +592,16 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             </marker>
           </defs>
 
-          <g id="viewport-transform" transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
+          <g
+            id="viewport-transform"
+            transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}
+            style={{
+              transition:
+                smoothCamera && !isPanning && !draggingNodeId && !draggingEdgeId
+                  ? 'transform 220ms cubic-bezier(0.22, 1, 0.36, 1)'
+                  : undefined,
+            }}
+          >
             {/* BPMN Swimlanes */}
             {layout.lanes.map((lane, idx) => (
               <g key={lane.id}>
@@ -562,6 +692,8 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                     x: 2 * customMid.x - 0.5 * (approxStart.x + approxEnd.x),
                     y: 2 * customMid.y - 0.5 * (approxStart.y + approxEnd.y),
                   };
+                } else if (edge.planarControlPoint) {
+                  cp = edge.planarControlPoint;
                 } else if (edge.isBackEdge) {
                   cp =
                     layout.summary.resolvedOrientation === 'LR'
@@ -576,11 +708,68 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
                 const startPt = getBoundaryPoint(sNode, cp);
                 const endPt = getBoundaryPoint(tNode, cp);
-                pathD = `M ${startPt.x} ${startPt.y} Q ${cp.x} ${cp.y} ${endPt.x} ${endPt.y}`;
-                labelPos = customMid || quadPoint(startPt, cp, endPt, 0.5);
+                const customMidActive = Boolean(customMid);
+
+                if (
+                  edge.pathStyle === 'orthogonal' &&
+                  !customMidActive &&
+                  !edge.isBackEdge &&
+                  !edge.planarControlPoint
+                ) {
+                  const isLR = layout.summary.resolvedOrientation === 'LR';
+                  if (isLR) {
+                    const midX = (startPt.x + endPt.x) / 2;
+                    pathD = `M ${startPt.x} ${startPt.y} L ${midX} ${startPt.y} L ${midX} ${endPt.y} L ${endPt.x} ${endPt.y}`;
+                    labelPos = { x: midX, y: (startPt.y + endPt.y) / 2 };
+                  } else {
+                    const midY = (startPt.y + endPt.y) / 2;
+                    pathD = `M ${startPt.x} ${startPt.y} L ${startPt.x} ${midY} L ${endPt.x} ${midY} L ${endPt.x} ${endPt.y}`;
+                    labelPos = { x: (startPt.x + endPt.x) / 2, y: midY };
+                  }
+                } else if (
+                  edge.pathStyle === 'bundled' &&
+                  !customMidActive &&
+                  !edge.planarControlPoint &&
+                  (!edge.isBackbone || edge.isBackEdge)
+                ) {
+                  // Hierarchical highway corridor bundling: pulls spaghetti edges into shared trunk channels
+                  const isLR = layout.summary.resolvedOrientation === 'LR';
+                  const corridor = edge.bundleOffset ?? (isLR ? my : mx);
+                  const pull = edge.isBackEdge ? 0.78 : 0.68;
+                  const cp1: Point = isLR
+                    ? {
+                        x: startPt.x + (endPt.x - startPt.x) * 0.32,
+                        y: startPt.y * (1 - pull) + corridor * pull,
+                      }
+                    : {
+                        x: startPt.x * (1 - pull) + corridor * pull,
+                        y: startPt.y + (endPt.y - startPt.y) * 0.32,
+                      };
+                  const cp2: Point = isLR
+                    ? {
+                        x: startPt.x + (endPt.x - startPt.x) * 0.68,
+                        y: endPt.y * (1 - pull) + corridor * pull,
+                      }
+                    : {
+                        x: endPt.x * (1 - pull) + corridor * pull,
+                        y: startPt.y + (endPt.y - startPt.y) * 0.68,
+                      };
+                  pathD = `M ${startPt.x} ${startPt.y} C ${cp1.x} ${cp1.y}, ${cp2.x} ${cp2.y}, ${endPt.x} ${endPt.y}`;
+                  labelPos = cubicPoint(startPt, cp1, cp2, endPt, 0.5);
+                } else {
+                  pathD = `M ${startPt.x} ${startPt.y} Q ${cp.x} ${cp.y} ${endPt.x} ${endPt.y}`;
+                  labelPos = customMid || quadPoint(startPt, cp, endPt, 0.5);
+                }
               }
 
-              const strokeWidth = edge.isStartArc || edge.isEndArc ? 1.5 : 1.4 + edge.weightRatio * 3.4;
+              const isAttenuated = !isHighlighted && (edge.opacityHint ?? 1) <= 0.16;
+              const strokeWidth = edge.isStartArc || edge.isEndArc
+                ? 1.5
+                : isAttenuated
+                ? 0.9
+                : edge.isBackbone
+                ? 1.8 + edge.weightRatio * 3.4
+                : 1.2 + edge.weightRatio * 2.8;
               const strokeColor = isHighlighted
                 ? '#1d4ed8'
                 : edge.isBackEdge
@@ -591,11 +780,21 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                 : edge.isBackEdge
                 ? 'url(#arrow-back)'
                 : 'url(#arrow-default)';
+              const baseOpacity = isDimmed
+                ? 0.12
+                : isHighlighted
+                ? 1
+                : edge.opacityHint ?? 1;
+              const isDenseGraph = layout.edges.length > 90;
+              const labelWeightThreshold = layout.edges.length > 400 ? 0.55 : 0.32;
+              const showEdgeLabel =
+                Boolean(edge.label || edge.sublabel) &&
+                (!isDenseGraph || isHighlighted || edge.weightRatio >= labelWeightThreshold);
 
               return (
                 <g
                   key={edge.id}
-                  style={{ opacity: isDimmed ? 0.18 : 1, transition: 'opacity 150ms ease' }}
+                  style={{ opacity: baseOpacity, transition: 'opacity 150ms ease' }}
                   onMouseEnter={() =>
                     (mode === 'inspect' || mode === 'edit') && setHoveredEdgeId(edge.id)
                   }
@@ -618,7 +817,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                     markerEnd={markerEnd}
                   />
 
-                  {(edge.label || edge.sublabel) && (
+                  {showEdgeLabel && (
                     <g transform={`translate(${labelPos.x}, ${labelPos.y})`}>
                       <rect
                         x={-28}
@@ -701,7 +900,8 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
             {/* Nodes */}
             {positionedNodes.map((node) => {
-              const isSelected = selected?.id === node.id;
+              const isMultiSelected = multiSelectedIds.includes(node.id);
+              const isSelected = selected?.id === node.id || isMultiSelected;
               const isHovered = hoveredNodeId === node.id;
               const isHighlighted =
                 isSelected || isHovered || Boolean(activeFocus?.highlightedNodes.has(node.id));
@@ -718,7 +918,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                 ? '#475569'
                 : '#94a3b8';
 
-              const strokeWidth = isSelected || isHovered ? 2.2 : 1.4;
+              const strokeWidth = isSelected || isHovered ? 2.4 : 1.4;
 
               const heatAlpha = node.heatRatio !== undefined ? 0.05 + node.heatRatio * 0.16 : 0;
               const cardFill =
@@ -751,15 +951,85 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                     if (mode !== 'edit' || e.button !== 0) return;
                     e.stopPropagation();
                     didDragRef.current = false;
+                    pendingCtrlToggleOutRef.current = null;
                     const w = clientToWorld(e.clientX, e.clientY);
-                    dragOffsetRef.current = { x: w.x - node.x, y: w.y - node.y };
+
+                    let idsToDrag: string[];
+                    if (e.ctrlKey || e.metaKey) {
+                      if (multiSelectedIds.includes(node.id)) {
+                        pendingCtrlToggleOutRef.current = node.id;
+                        idsToDrag = multiSelectedIds;
+                      } else {
+                        const base =
+                          multiSelectedIds.length === 0 && selected?.kind === 'node'
+                            ? [selected.id]
+                            : multiSelectedIds;
+                        const nextSelection = Array.from(new Set([...base, node.id]));
+                        setMultiSelectedIds(nextSelection);
+                        idsToDrag = nextSelection;
+                      }
+                    } else if (multiSelectedIds.includes(node.id) && multiSelectedIds.length > 0) {
+                      idsToDrag = multiSelectedIds;
+                    } else {
+                      if (multiSelectedIds.length > 0) setMultiSelectedIds([]);
+                      idsToDrag = [node.id];
+                    }
+
+                    const initialNodes: Record<string, Point> = {};
+                    idsToDrag.forEach((id) => {
+                      const pt = nodeById.get(id);
+                      if (pt) initialNodes[id] = { x: pt.x, y: pt.y };
+                    });
+                    groupDragStartRef.current = { pointerStart: w, initialNodes };
                     setDraggingNodeId(node.id);
                   }}
                   onClick={(e) => {
                     e.stopPropagation();
+                    if (mode === 'static' || didDragRef.current) return;
+
+                    if (e.ctrlKey || e.metaKey) {
+                      if (mode === 'edit') {
+                        if (pendingCtrlToggleOutRef.current === node.id) {
+                          pendingCtrlToggleOutRef.current = null;
+                          setMultiSelectedIds((prev) => prev.filter((id) => id !== node.id));
+                          return;
+                        }
+                        selectNode(node);
+                        return;
+                      }
+                      // Inspect mode: Ctrl+Click toggles membership in multiSelectedIds
+                      setMultiSelectedIds((prev) => {
+                        const base =
+                          prev.length === 0 && selected?.kind === 'node' ? [selected.id] : prev;
+                        return base.includes(node.id)
+                          ? base.filter((id) => id !== node.id)
+                          : [...base, node.id];
+                      });
+                      selectNode(node);
+                      return;
+                    }
+
+                    if (multiSelectedIds.length > 0) {
+                      setMultiSelectedIds([]);
+                    }
                     selectNode(node);
                   }}
                 >
+                  <title>{node.label}</title>
+                  {isMultiSelected && (
+                    <rect
+                      data-export-ignore="true"
+                      x={-node.width / 2 - 5}
+                      y={-node.height / 2 - 5}
+                      width={node.width + 10}
+                      height={node.height + 10}
+                      rx={12}
+                      fill="none"
+                      stroke="#1d4ed8"
+                      strokeWidth={1.6}
+                      strokeDasharray="4 3"
+                    />
+                  )}
                   {(node.shape === 'startTerminal' || node.shape === 'endTerminal') && (
                     <>
                       <circle
@@ -773,8 +1043,14 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                             ? '#7f1d1d'
                             : '#fef2f2'
                         }
-                        stroke={node.shape === 'startTerminal' ? '#059669' : '#dc2626'}
-                        strokeWidth={2}
+                        stroke={
+                          isSelected
+                            ? '#1d4ed8'
+                            : node.shape === 'startTerminal'
+                            ? '#059669'
+                            : '#dc2626'
+                        }
+                        strokeWidth={isSelected ? 2.6 : 2}
                       />
                       {node.shape === 'startTerminal' ? (
                         <polygon points="-5,-8 9,0 -5,8" fill="#059669" />

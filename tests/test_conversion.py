@@ -281,6 +281,155 @@ class TestJsonConversion:
             convert(p, "json")
 
 
+# ── Native DFG JSON pass-through ──────────────────────────────────────────────
+
+class TestNativeDFGPassThrough:
+    """
+    A JSON file that already contains a native graph envelope
+    (kind == "dfg" | "petri_net" | "process_tree" | "bpmn") must be
+    returned verbatim — no fields overwritten or dropped.
+    """
+
+    _NATIVE_DFG = {
+        "kind": "dfg",
+        "id": "my-dfg",
+        "name": "Event Log DFG",
+        "activities": [
+            {"id": "a", "label": "Create Order",
+                "count": 120, "meanDurationSec": 300.0},
+            {"id": "b", "label": "Approve Order",
+                "count": 95,  "meanDurationSec": 600.0},
+        ],
+        "startActivities": {"a": 120},
+        "endActivities":   {"b": 95},
+        "edges": [
+            {"id": "e1", "source": "a", "target": "b",
+                "count": 95, "meanDurationSec": 1800.0}
+        ],
+    }
+
+    def _write(self, tmp_path, data) -> "Path":
+        import json
+        p = tmp_path / "graph.json"
+        p.write_text(json.dumps(data))
+        return p
+
+    # ── kind == "dfg" ─────────────────────────────────────────────────────────
+
+    def test_kind_dfg_returned_verbatim(self, tmp_path):
+        from app.services.graph_conversion.converter import convert
+        p = self._write(tmp_path, self._NATIVE_DFG)
+        result = convert(p, "json")
+        assert result == self._NATIVE_DFG
+
+    def test_activity_counts_preserved(self, tmp_path):
+        """count must come from the file, not from G.degree()."""
+        from app.services.graph_conversion.converter import convert
+        p = self._write(tmp_path, self._NATIVE_DFG)
+        result = convert(p, "json")
+        counts = {a["label"]: a["count"] for a in result["activities"]}
+        assert counts["Create Order"] == 120
+        assert counts["Approve Order"] == 95
+
+    def test_mean_duration_preserved(self, tmp_path):
+        """meanDurationSec must not be dropped."""
+        from app.services.graph_conversion.converter import convert
+        p = self._write(tmp_path, self._NATIVE_DFG)
+        result = convert(p, "json")
+        edge = result["edges"][0]
+        assert edge["meanDurationSec"] == 1800.0
+        act = next(a for a in result["activities"] if a["id"] == "a")
+        assert act["meanDurationSec"] == 300.0
+
+    def test_start_end_activities_preserved(self, tmp_path):
+        """startActivities / endActivities must not be recomputed."""
+        from app.services.graph_conversion.converter import convert
+        p = self._write(tmp_path, self._NATIVE_DFG)
+        result = convert(p, "json")
+        assert result["startActivities"] == {"a": 120}
+        assert result["endActivities"] == {"b": 95}
+
+    def test_id_and_name_preserved(self, tmp_path):
+        from app.services.graph_conversion.converter import convert
+        p = self._write(tmp_path, self._NATIVE_DFG)
+        result = convert(p, "json")
+        assert result["id"] == "my-dfg"
+        assert result["name"] == "Event Log DFG"
+
+    # ── other native kinds also pass through ──────────────────────────────────
+
+    def test_kind_petri_net_passthrough(self, tmp_path):
+        from app.services.graph_conversion.converter import convert
+        data = {
+            "kind": "petri_net",
+            "id": "pn-1",
+            "name": "My Net",
+            "places": [{"id": "p0", "label": "source", "initialTokens": 1, "isFinal": False}],
+            "transitions": [{"id": "t0", "label": "Create Order", "silent": False, "frequency": 120}],
+            "arcs": [{"id": "a0", "source": "p0", "target": "t0", "weight": 1}],
+        }
+        p = self._write(tmp_path, data)
+        assert convert(p, "json") == data
+
+    def test_kind_bpmn_passthrough(self, tmp_path):
+        from app.services.graph_conversion.converter import convert
+        data = {
+            "kind": "bpmn",
+            "id": "bpmn-1",
+            "name": "My BPMN",
+            "nodes": [{"id": "n0", "type": "startEvent", "label": "Start"}],
+            "edges": [{"id": "f0", "source": "n0", "target": "n1"}],
+            "lanes": [],
+        }
+        p = self._write(tmp_path, data)
+        assert convert(p, "json") == data
+
+    def test_kind_process_tree_passthrough(self, tmp_path):
+        from app.services.graph_conversion.converter import convert
+        data = {
+            "kind": "process_tree",
+            "id": "pt-1",
+            "name": "My Tree",
+            "root": {
+                "id": "n0", "type": "operator", "operator": "seq",
+                "children": [
+                    {"id": "n1", "type": "activity", "label": "A", "children": []},
+                    {"id": "n2", "type": "activity", "label": "B", "children": []},
+                ],
+            },
+        }
+        p = self._write(tmp_path, data)
+        assert convert(p, "json") == data
+
+    # ── non-native JSON still goes through the NetworkX pipeline ─────────────
+
+    def test_generic_edge_list_still_converted(self, tmp_path):
+        """A JSON without 'kind' must still go through _load_json_graph."""
+        import json
+        from app.services.graph_conversion.converter import convert
+        data = [{"source": "X", "target": "Y"}, {"source": "Y", "target": "Z"}]
+        p = tmp_path / "edges.json"
+        p.write_text(json.dumps(data))
+        result = convert(p, "json")
+        # Result is rebuilt by _nx_to_dfg — kind is still "dfg" but id is auto-generated
+        assert result["kind"] == "dfg"
+        assert len(result["edges"]) == 2
+        # counts come from degree, not from the file — verify no meanDurationSec explosion
+        for edge in result["edges"]:
+            assert edge["meanDurationSec"] is None
+
+    def test_unknown_kind_still_converted(self, tmp_path):
+        """kind == 'custom' is not a native kind, so it goes through the pipeline."""
+        import json
+        from app.services.graph_conversion.converter import convert
+        data = {"kind": "custom", "links": [{"source": "A", "target": "B"}]}
+        p = tmp_path / "custom.json"
+        p.write_text(json.dumps(data))
+        # networkx node-link format — should parse via _load_json_graph
+        result = convert(p, "json")
+        assert result["kind"] == "dfg"  # rebuilt by _nx_to_dfg
+
+
 # ── Pajek (.pajek alias) ──────────────────────────────────────────────────────
 
 class TestPajekConversion:
